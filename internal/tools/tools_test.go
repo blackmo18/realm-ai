@@ -14,6 +14,9 @@ func TestRealmDefsAreComplete(t *testing.T) {
 		if !want[d.Name] {
 			t.Errorf("unexpected tool %q", d.Name)
 		}
+		if req, isList := d.Schema["required"].([]string); !isList || req == nil {
+			t.Errorf("tool %q: required must be a JSON array, got %#v", d.Name, d.Schema["required"])
+		}
 		if d.Schema["type"] != "object" || d.Description == "" {
 			t.Errorf("tool %q has bad schema or description", d.Name)
 		}

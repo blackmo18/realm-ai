@@ -19,6 +19,9 @@ const (
 )
 
 func obj(props map[string]any, required ...string) map[string]any {
+	if required == nil {
+		required = []string{} // JSON Schema needs an array, never null
+	}
 	return map[string]any{"type": "object", "properties": props, "required": required}
 }
 

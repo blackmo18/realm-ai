@@ -399,3 +399,6 @@ func clip(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+// DMChatID returns the chat id of a DM between two handles stored in scope.
+func DMChatID(scope, a, b string) string { return dmID(scope, a, b) }

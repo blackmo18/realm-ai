@@ -96,7 +96,9 @@ func (r Runner) Run(ctx context.Context, t runtime.Turn) (runtime.Result, error)
 	}
 	cmd := exec.CommandContext(ctx, bin, BuildArgs(t)...)
 	cmd.Dir = t.WorkDir
-	cmd.Env = append(cmd.Environ(), r.Env...)
+	// Wait for MCP servers before the first model call so realm tools are
+	// available on the bot's first turn.
+	cmd.Env = append(append(cmd.Environ(), "MCP_CONNECTION_NONBLOCKING=false"), r.Env...)
 	cmd.Stdin = strings.NewReader(t.Prompt)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
