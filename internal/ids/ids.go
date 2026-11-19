@@ -5,13 +5,36 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 )
 
-// New returns a time-sortable unique id: 12 hex digits of unix milliseconds
-// followed by 8 random hex digits.
+var (
+	mu     sync.Mutex
+	lastMS int64
+	seq    uint32
+)
+
+// New returns a unique id that sorts in creation order within a process:
+// 12 hex digits of unix milliseconds, a 4-hex-digit sequence for ids made in
+// the same millisecond, and 4 random hex digits.
 func New() string {
-	return fmt.Sprintf("%012x%s", time.Now().UnixMilli(), randomHex(4))
+	mu.Lock()
+	ms := time.Now().UnixMilli()
+	if ms <= lastMS {
+		ms = lastMS
+		seq++
+		if seq > 0xffff {
+			ms++
+			seq = 0
+		}
+	} else {
+		seq = 0
+	}
+	lastMS = ms
+	id := fmt.Sprintf("%012x%04x%s", ms, seq, randomHex(2))
+	mu.Unlock()
+	return id
 }
 
 // UUID returns a random RFC 4122 version 4 UUID.

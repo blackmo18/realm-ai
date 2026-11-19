@@ -8,7 +8,7 @@ import (
 func TestNewIsSortableAndUnique(t *testing.T) {
 	seen := map[string]bool{}
 	prev := ""
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 70000; i++ {
 		id := New()
 		if len(id) != 20 {
 			t.Fatalf("len(%q) = %d, want 20", id, len(id))
@@ -16,10 +16,10 @@ func TestNewIsSortableAndUnique(t *testing.T) {
 		if seen[id] {
 			t.Fatalf("duplicate id %q", id)
 		}
-		if id[:12] < prev {
-			t.Fatalf("timestamp prefix went backwards: %q < %q", id[:12], prev)
+		if id[:16] <= prev {
+			t.Fatalf("ids not strictly increasing: %q <= %q", id[:16], prev)
 		}
-		prev = id[:12]
+		prev = id[:16]
 		seen[id] = true
 	}
 }
