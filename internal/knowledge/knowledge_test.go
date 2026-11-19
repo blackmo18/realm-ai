@@ -127,3 +127,28 @@ func TestListSkipsForeignFiles(t *testing.T) {
 		t.Fatalf("list: %+v %v", all, err)
 	}
 }
+
+func TestUpdateKeepsIDAndOrigin(t *testing.T) {
+	s := Open(t.TempDir())
+	e, _ := s.Remember("Old", "old body")
+	u, err := s.Update(e.ID, "New title", "new body")
+	if err != nil || u.ID != e.ID || u.Created != e.Created {
+		t.Fatalf("update: %+v %v", u, err)
+	}
+	got, _ := s.Get(e.ID)
+	if got.Title != "New title" || got.Body != "new body" {
+		t.Fatalf("reload: %+v", got)
+	}
+	if idx, _ := s.Index(); !strings.Contains(idx, "New title") {
+		t.Fatalf("index not rebuilt: %q", idx)
+	}
+	if _, err := s.Update(e.ID, " ", "x"); err == nil {
+		t.Fatal("empty title accepted")
+	}
+	if _, err := s.Update(e.ID, "t", " "); err == nil {
+		t.Fatal("empty body accepted")
+	}
+	if _, err := s.Update("missing", "t", "b"); err == nil {
+		t.Fatal("missing id accepted")
+	}
+}

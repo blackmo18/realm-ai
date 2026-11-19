@@ -17,11 +17,11 @@ import (
 
 // Entry is one knowledge note.
 type Entry struct {
-	ID      string
-	Title   string
-	Body    string
-	Created string
-	Origin  string
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	Created string `json:"created"`
+	Origin  string `json:"origin,omitempty"`
 }
 
 // Store manages a knowledge folder.
@@ -156,6 +156,26 @@ func (s *Store) List() ([]Entry, error) {
 		return out[i].Created < out[j].Created
 	})
 	return out, nil
+}
+
+// Update rewrites an entry's title and body, keeping its id and origin.
+func (s *Store) Update(id, title, body string) (Entry, error) {
+	cur, err := s.Get(id)
+	if err != nil {
+		return Entry{}, err
+	}
+	title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
+	if title == "" {
+		return Entry{}, errors.New("title is required")
+	}
+	if strings.TrimSpace(body) == "" {
+		return Entry{}, errors.New("body is required")
+	}
+	updated := Entry{ID: cur.ID, Title: title, Body: strings.TrimSpace(body), Created: cur.Created, Origin: cur.Origin}
+	if err := os.WriteFile(s.path(id), []byte(render(updated)), 0o600); err != nil {
+		return Entry{}, fmt.Errorf("write knowledge: %w", err)
+	}
+	return updated, s.rebuildIndex()
 }
 
 // Forget deletes an entry.

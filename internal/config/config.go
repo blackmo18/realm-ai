@@ -38,10 +38,10 @@ func (p ProviderConfig) APIKey() (string, error) {
 
 // Limits bound how much work the daemon does.
 type Limits struct {
-	MaxConcurrent   int `yaml:"max_concurrent"`
-	MaxHops         int `yaml:"max_hops"`
-	HistoryMessages int `yaml:"history_messages"`
-	TurnTimeoutSec  int `yaml:"turn_timeout_sec"`
+	MaxConcurrent   int `yaml:"max_concurrent" json:"max_concurrent"`
+	MaxHops         int `yaml:"max_hops" json:"max_hops"`
+	HistoryMessages int `yaml:"history_messages" json:"history_messages"`
+	TurnTimeoutSec  int `yaml:"turn_timeout_sec" json:"turn_timeout_sec"`
 }
 
 // Config is ~/.realm/config.yaml.

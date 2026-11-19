@@ -208,15 +208,24 @@ func (e *Engine) store(scope string) (*store.Store, error) {
 	return opened, nil
 }
 
-// RegisterProject initializes <dir>/.realm and registers the project.
+// RegisterProject initializes <dir>/.realm and registers the project
+// under a slug derived from the folder name.
 func (e *Engine) RegisterProject(dir string) (config.Scope, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return config.Scope{}, err
 	}
+	return e.registerProject(abs, "")
+}
+
+func (e *Engine) registerProject(abs, slug string) (config.Scope, error) {
 	if abs == filepath.Dir(e.global.Root) && filepath.Base(e.global.Root) == config.DirName {
 		return config.Scope{}, errors.New("cannot register your home folder as a project")
 	}
+	if slug == "" {
+		slug = filepath.Base(abs)
+	}
+	slug = config.Slugify(slug)
 	if err := os.MkdirAll(filepath.Join(abs, config.DirName, "bots"), 0o755); err != nil {
 		return config.Scope{}, fmt.Errorf("create project realm folder: %w", err)
 	}
@@ -224,7 +233,7 @@ func (e *Engine) RegisterProject(dir string) (config.Scope, error) {
 	if err != nil {
 		return config.Scope{}, err
 	}
-	p, err := gs.RegisterProject(config.Slugify(filepath.Base(abs)), abs)
+	p, err := gs.RegisterProject(slug, abs)
 	if err != nil {
 		return config.Scope{}, err
 	}

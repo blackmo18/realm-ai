@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/blackmo18/realm-ai/internal/daemon"
+	"github.com/blackmo18/realm-ai/internal/engine"
+	"github.com/blackmo18/realm-ai/internal/knowledge"
 	"github.com/blackmo18/realm-ai/internal/store"
 )
 
@@ -222,4 +224,136 @@ func (c *Client) WaitHealthy(ctx context.Context, timeout time.Duration) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+func (c *Client) get(ctx context.Context, path string, params url.Values, out any) error {
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	return c.do(ctx, http.MethodGet, path, nil, out)
+}
+
+// ListBots lists bots visible from a scope.
+func (c *Client) ListBots(ctx context.Context, scope string) ([]engine.BotView, error) {
+	var out []engine.BotView
+	return out, c.get(ctx, "/v1/bots", url.Values{"scope": {scope}}, &out)
+}
+
+// GetBot loads one bot.
+func (c *Client) GetBot(ctx context.Context, handle, scope string) (engine.BotView, error) {
+	var out engine.BotView
+	return out, c.get(ctx, "/v1/bot", url.Values{"handle": {handle}, "scope": {scope}}, &out)
+}
+
+// CreateBot creates a bot.
+func (c *Client) CreateBot(ctx context.Context, in engine.BotInput) (engine.BotView, error) {
+	var out engine.BotView
+	return out, c.do(ctx, http.MethodPost, "/v1/bots", in, &out)
+}
+
+// UpdateBot patches a bot.
+func (c *Client) UpdateBot(ctx context.Context, handle string, p engine.BotPatch) (engine.BotView, error) {
+	var out engine.BotView
+	return out, c.do(ctx, http.MethodPost, "/v1/bots/update", daemon.BotUpdate{Handle: handle, Patch: p}, &out)
+}
+
+// SetBotStatus runs on/off/archive/restore.
+func (c *Client) SetBotStatus(ctx context.Context, handle, action string) (daemon.StatusResult, error) {
+	var out daemon.StatusResult
+	return out, c.do(ctx, http.MethodPost, "/v1/bots/status", daemon.BotStatus{Handle: handle, Action: action}, &out)
+}
+
+// InheritKnowledge copies knowledge from one bot into another.
+func (c *Client) InheritKnowledge(ctx context.Context, handle, from string) (int, error) {
+	var out int
+	return out, c.do(ctx, http.MethodPost, "/v1/bots/inherit", daemon.BotInherit{Handle: handle, From: from}, &out)
+}
+
+// Knowledge lists a bot's knowledge.
+func (c *Client) Knowledge(ctx context.Context, handle string) ([]knowledge.Entry, error) {
+	var out []knowledge.Entry
+	return out, c.get(ctx, "/v1/knowledge", url.Values{"handle": {handle}}, &out)
+}
+
+// AddKnowledge adds a knowledge entry.
+func (c *Client) AddKnowledge(ctx context.Context, handle, title, body string) (knowledge.Entry, error) {
+	var out knowledge.Entry
+	return out, c.do(ctx, http.MethodPost, "/v1/knowledge", daemon.KnowledgeAdd{Handle: handle, Title: title, Body: body}, &out)
+}
+
+// UpdateKnowledge rewrites a knowledge entry.
+func (c *Client) UpdateKnowledge(ctx context.Context, handle, id, title, body string) (knowledge.Entry, error) {
+	var out knowledge.Entry
+	return out, c.do(ctx, http.MethodPost, "/v1/knowledge/update", daemon.KnowledgeAdd{Handle: handle, ID: id, Title: title, Body: body}, &out)
+}
+
+// ForgetKnowledge deletes a knowledge entry.
+func (c *Client) ForgetKnowledge(ctx context.Context, handle, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/knowledge/forget", daemon.KnowledgeAdd{Handle: handle, ID: id}, nil)
+}
+
+// ChatMembers lists a chat's routable bots.
+func (c *Client) ChatMembers(ctx context.Context, chat string) ([]engine.BotView, error) {
+	var out []engine.BotView
+	return out, c.get(ctx, "/v1/chats/members", url.Values{"chat": {chat}}, &out)
+}
+
+// Projects lists registered projects.
+func (c *Client) Projects(ctx context.Context) ([]store.Project, error) {
+	var out []store.Project
+	return out, c.get(ctx, "/v1/projects", nil, &out)
+}
+
+// RegisterProject registers a folder.
+func (c *Client) RegisterProject(ctx context.Context, in daemon.ProjectAdd) (store.Project, error) {
+	var out store.Project
+	return out, c.do(ctx, http.MethodPost, "/v1/projects", in, &out)
+}
+
+// InspectFolder reports what a folder holds.
+func (c *Client) InspectFolder(ctx context.Context, path string) (engine.FolderInfo, error) {
+	var out engine.FolderInfo
+	return out, c.get(ctx, "/v1/projects/inspect", url.Values{"path": {path}}, &out)
+}
+
+// SuggestFolders lists unregistered git folders.
+func (c *Client) SuggestFolders(ctx context.Context) ([]string, error) {
+	var out []string
+	return out, c.get(ctx, "/v1/projects/suggest", nil, &out)
+}
+
+// Onboard runs the add-project flow.
+func (c *Client) Onboard(ctx context.Context, in engine.OnboardInput) (engine.OnboardResult, error) {
+	var out engine.OnboardResult
+	return out, c.do(ctx, http.MethodPost, "/v1/onboard", in, &out)
+}
+
+// Templates lists starter bots.
+func (c *Client) Templates(ctx context.Context) ([]engine.Template, error) {
+	var out []engine.Template
+	return out, c.get(ctx, "/v1/templates", nil, &out)
+}
+
+// Skills lists skills visible at a scope.
+func (c *Client) Skills(ctx context.Context, scope string) ([]engine.Skill, error) {
+	var out []engine.Skill
+	return out, c.get(ctx, "/v1/skills", url.Values{"scope": {scope}}, &out)
+}
+
+// Providers lists runtimes and readiness.
+func (c *Client) Providers(ctx context.Context) ([]engine.ProviderInfo, error) {
+	var out []engine.ProviderInfo
+	return out, c.get(ctx, "/v1/providers", nil, &out)
+}
+
+// Settings returns the effective configuration.
+func (c *Client) Settings(ctx context.Context) (engine.Settings, error) {
+	var out engine.Settings
+	return out, c.get(ctx, "/v1/settings", nil, &out)
+}
+
+// StartUI starts the daemon's web UI listener and returns its URL.
+func (c *Client) StartUI(ctx context.Context) (string, error) {
+	var out daemon.UIResult
+	return out.URL, c.do(ctx, http.MethodPost, "/v1/ui", nil, &out)
 }

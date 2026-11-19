@@ -51,8 +51,8 @@ var (
 
 // Lineage records where inherited knowledge came from.
 type Lineage struct {
-	InheritedFrom string `yaml:"inherited_from"`
-	At            string `yaml:"at"`
+	InheritedFrom string `yaml:"inherited_from" json:"inherited_from"`
+	At            string `yaml:"at" json:"at"`
 }
 
 // Bot is the contents of bot.yaml plus where it lives.

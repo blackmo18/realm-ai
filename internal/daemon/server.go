@@ -1,4 +1,5 @@
-// Package daemon serves the engine over HTTP on a unix socket.
+// Package daemon serves the engine over HTTP on a unix socket, and serves
+// the web UI on a local TCP port when asked.
 package daemon
 
 import (
@@ -66,44 +67,117 @@ type (
 	BotChanged struct {
 		Handle string `json:"handle"`
 	}
+	BotUpdate struct {
+		Handle string          `json:"handle"`
+		Patch  engine.BotPatch `json:"patch"`
+	}
+	BotStatus struct {
+		Handle string `json:"handle"`
+		Action string `json:"action"`
+	}
+	BotInherit struct {
+		Handle string `json:"handle"`
+		From   string `json:"from"`
+	}
+	KnowledgeAdd struct {
+		Handle string `json:"handle"`
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+	}
+	ProjectAdd struct {
+		Dir      string `json:"dir"`
+		Slug     string `json:"slug"`
+		IgnoreDB bool   `json:"ignore_db"`
+	}
+	// StatusResult is the reply to a lifecycle change.
+	StatusResult struct {
+		Bot        engine.BotView `json:"bot"`
+		Dispatched int            `json:"dispatched"`
+	}
+	// UIResult is the reply to a web UI start request.
+	UIResult struct {
+		URL string `json:"url"`
+	}
 )
 
-// Handler returns the daemon HTTP API.
-func Handler(e *engine.Engine, shutdown func()) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, r *http.Request) {
-		ok(w, map[string]any{"pid": os.Getpid()})
+// routes registers the API shared by the unix socket and the web UI.
+func routes(mux *http.ServeMux, e *engine.Engine) {
+	q := func(r *http.Request, k string) string { return r.URL.Query().Get(k) }
+	get := func(path string, fn func(*http.Request) (any, error)) {
+		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { reply(w)(fn(r)) })
+	}
+	get("/v1/health", func(*http.Request) (any, error) { return map[string]any{"pid": os.Getpid()}, nil })
+	get("/v1/chats", func(r *http.Request) (any, error) { return e.ListChats(q(r, "scope")) })
+	get("/v1/chat", func(r *http.Request) (any, error) { return e.GetChat(q(r, "id")) })
+	get("/v1/chats/members", func(r *http.Request) (any, error) { return e.ChatMembers(q(r, "chat")) })
+	get("/v1/messages", func(r *http.Request) (any, error) {
+		limit, _ := strconv.Atoi(q(r, "limit"))
+		return e.Messages(q(r, "chat"), limit)
 	})
+	get("/v1/bots", func(r *http.Request) (any, error) { return e.ListBots(q(r, "scope")) })
+	get("/v1/bot", func(r *http.Request) (any, error) { return e.GetBot(q(r, "handle"), q(r, "scope")) })
+	get("/v1/knowledge", func(r *http.Request) (any, error) { return e.Knowledge(q(r, "handle")) })
+	get("/v1/projects", func(*http.Request) (any, error) { return e.Projects() })
+	get("/v1/projects/inspect", func(r *http.Request) (any, error) { return e.InspectFolder(q(r, "path")) })
+	get("/v1/projects/suggest", func(*http.Request) (any, error) { return e.SuggestFolders(8) })
+	get("/v1/templates", func(*http.Request) (any, error) { return engine.Templates(), nil })
+	get("/v1/skills", func(r *http.Request) (any, error) { return e.ListSkills(q(r, "scope")) })
+	get("/v1/providers", func(*http.Request) (any, error) { return e.Providers(), nil })
+	get("/v1/settings", func(*http.Request) (any, error) { return e.Settings(), nil })
+
+	mux.HandleFunc("POST /v1/chats", handle(func(in ChatCreate) (any, error) {
+		return e.CreateChat(in.Scope, in.Name, in.Routing, in.Members)
+	}))
+	mux.HandleFunc("POST /v1/chats/members", handle(func(in ChatMember) (any, error) { return e.AddMember(in.Chat, in.Bot) }))
+	mux.HandleFunc("POST /v1/chats/routing", handle(func(in ChatRouting) (any, error) {
+		return in.Routing, e.SetRouting(in.Chat, in.Routing)
+	}))
+	mux.HandleFunc("POST /v1/messages", handle(func(in Post) (any, error) { return e.PostUser(in.Chat, in.Text) }))
+	mux.HandleFunc("POST /v1/dm", handle(func(in DM) (any, error) { return e.DMUser(in.To, in.Scope, in.Text) }))
+	mux.HandleFunc("POST /v1/pick", handle(func(in Pick) (any, error) { return e.Pick(in.Chat, in.Ask, in.Bot) }))
+	mux.HandleFunc("POST /v1/reroute", handle(func(in Reroute) (any, error) { return e.Reroute(in.Chat, in.Message, in.Bot) }))
+	mux.HandleFunc("POST /v1/bots", handle(func(in engine.BotInput) (any, error) { return e.CreateBot(in) }))
+	mux.HandleFunc("POST /v1/bots/update", handle(func(in BotUpdate) (any, error) { return e.UpdateBot(in.Handle, in.Patch) }))
+	mux.HandleFunc("POST /v1/bots/status", handle(func(in BotStatus) (any, error) {
+		v, n, err := e.SetBotStatus(in.Handle, in.Action)
+		return StatusResult{Bot: v, Dispatched: n}, err
+	}))
+	mux.HandleFunc("POST /v1/bots/inherit", handle(func(in BotInherit) (any, error) { return e.InheritKnowledge(in.Handle, in.From) }))
+	mux.HandleFunc("POST /v1/bots/changed", handle(func(in BotChanged) (any, error) { return e.BotChanged(in.Handle) }))
+	mux.HandleFunc("POST /v1/knowledge", handle(func(in KnowledgeAdd) (any, error) { return e.AddKnowledge(in.Handle, in.Title, in.Body) }))
+	mux.HandleFunc("POST /v1/knowledge/update", handle(func(in KnowledgeAdd) (any, error) {
+		return e.UpdateKnowledge(in.Handle, in.ID, in.Title, in.Body)
+	}))
+	mux.HandleFunc("POST /v1/knowledge/forget", handle(func(in KnowledgeAdd) (any, error) { return in.ID, e.ForgetKnowledge(in.Handle, in.ID) }))
+	mux.HandleFunc("POST /v1/projects", handle(func(in ProjectAdd) (any, error) {
+		sc, err := e.RegisterProjectAs(in.Dir, in.Slug, in.IgnoreDB)
+		return store.Project{Slug: sc.Name, Root: sc.ProjectDir()}, err
+	}))
+	mux.HandleFunc("POST /v1/onboard", handle(func(in engine.OnboardInput) (any, error) { return e.Onboard(in) }))
+	mux.HandleFunc("GET /v1/stream", func(w http.ResponseWriter, r *http.Request) { stream(w, r, e) })
+}
+
+// Handler returns the full daemon API for the unix socket. It adds the
+// bot tool endpoint, shutdown and web UI start, which the web listener
+// never exposes.
+func Handler(e *engine.Engine, shutdown func(), startUI func() (string, error)) http.Handler {
+	mux := http.NewServeMux()
+	routes(mux, e)
 	mux.HandleFunc("POST /v1/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		ok(w, map[string]any{"stopping": true})
 		if shutdown != nil {
 			go shutdown()
 		}
 	})
-	mux.HandleFunc("POST /v1/chats", handle(func(in ChatCreate) (any, error) {
-		return e.CreateChat(in.Scope, in.Name, in.Routing, in.Members)
-	}))
-	mux.HandleFunc("GET /v1/chats", func(w http.ResponseWriter, r *http.Request) {
-		reply(w)(e.ListChats(r.URL.Query().Get("scope")))
+	mux.HandleFunc("POST /v1/ui", func(w http.ResponseWriter, r *http.Request) {
+		if startUI == nil {
+			fail(w, http.StatusNotImplemented, errors.New("web UI not available"))
+			return
+		}
+		url, err := startUI()
+		reply(w)(UIResult{URL: url}, err)
 	})
-	mux.HandleFunc("GET /v1/chat", func(w http.ResponseWriter, r *http.Request) {
-		reply(w)(e.GetChat(r.URL.Query().Get("id")))
-	})
-	mux.HandleFunc("POST /v1/chats/members", handle(func(in ChatMember) (any, error) {
-		return e.AddMember(in.Chat, in.Bot)
-	}))
-	mux.HandleFunc("POST /v1/chats/routing", handle(func(in ChatRouting) (any, error) {
-		return in.Routing, e.SetRouting(in.Chat, in.Routing)
-	}))
-	mux.HandleFunc("GET /v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		reply(w)(e.Messages(r.URL.Query().Get("chat"), limit))
-	})
-	mux.HandleFunc("POST /v1/messages", handle(func(in Post) (any, error) { return e.PostUser(in.Chat, in.Text) }))
-	mux.HandleFunc("POST /v1/dm", handle(func(in DM) (any, error) { return e.DMUser(in.To, in.Scope, in.Text) }))
-	mux.HandleFunc("POST /v1/pick", handle(func(in Pick) (any, error) { return e.Pick(in.Chat, in.Ask, in.Bot) }))
-	mux.HandleFunc("POST /v1/reroute", handle(func(in Reroute) (any, error) { return e.Reroute(in.Chat, in.Message, in.Bot) }))
-	mux.HandleFunc("POST /v1/bots/changed", handle(func(in BotChanged) (any, error) { return e.BotChanged(in.Handle) }))
 	mux.HandleFunc("POST /v1/tools/{name}", func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		raw, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
@@ -112,9 +186,6 @@ func Handler(e *engine.Engine, shutdown func()) http.Handler {
 			return
 		}
 		reply(w)(e.CallTool(r.Context(), token, r.PathValue("name"), raw))
-	})
-	mux.HandleFunc("GET /v1/stream", func(w http.ResponseWriter, r *http.Request) {
-		stream(w, r, e)
 	})
 	return mux
 }
@@ -224,10 +295,13 @@ func Listen(socket string) (net.Listener, error) {
 }
 
 // Serve runs the API on ln until ctx is cancelled or shutdown is requested.
+// The web UI listener, once started, stops with it.
 func Serve(ctx context.Context, ln net.Listener, e *engine.Engine) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	srv := &http.Server{Handler: Handler(e, cancel), ReadHeaderTimeout: 10 * time.Second}
+	web := &Web{e: e}
+	defer web.Close()
+	srv := &http.Server{Handler: Handler(e, cancel, web.Start), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	select {

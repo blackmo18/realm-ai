@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/blackmo18/realm-ai/internal/bot"
+	"github.com/blackmo18/realm-ai/internal/engine"
 	"github.com/blackmo18/realm-ai/internal/knowledge"
 )
 
@@ -83,22 +83,19 @@ func botCreateCmd(a *app) *cobra.Command {
 				return err
 			}
 			defer e.Close()
-			repo, err := e.Repo(scope)
+			draft := f.apply(cmd, bot.Bot{})
+			in := engine.BotInput{Scope: scope, Name: args[0], Provider: draft.Provider, Model: draft.Model, Effort: draft.Effort,
+				Charter: draft.Charter, Topics: draft.Topics, Skills: draft.Skills, Inherit: inherit}
+			if cmd.Flags().Changed("tools") {
+				in.Tools = nonNilTools(draft.Tools)
+			}
+			v, err := e.CreateBot(in)
 			if err != nil {
 				return err
 			}
-			draft := f.apply(cmd, bot.Bot{Name: args[0], Tools: []string{"Read", "Grep", "Glob"}})
-			b, err := repo.Create(draft)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(a.out, "created %s (%s, model %s)\n", b.Handle(), b.Provider, orDefault(b.Model, "default"))
+			fmt.Fprintf(a.out, "created %s (%s, model %s)\n", v.Handle, v.Provider, orDefault(v.Model, "default"))
 			if inherit != "" {
-				src, err := e.ResolveBot(inherit, scope)
-				if err != nil {
-					return err
-				}
-				return inheritInto(a, repo, src, b)
+				fmt.Fprintf(a.out, "%s inherited %d knowledge entries from %s\n", v.Handle, v.KnowledgeCount, inherit)
 			}
 			return nil
 		},
@@ -110,21 +107,11 @@ func botCreateCmd(a *app) *cobra.Command {
 	return cmd
 }
 
-func inheritInto(a *app, repo *bot.Repo, src, dst bot.Bot) error {
-	n, err := knowledge.Open(bot.KnowledgeDir(dst)).CopyFrom(knowledge.Open(bot.KnowledgeDir(src)), src.Handle())
-	if err != nil {
-		return err
+func nonNilTools(t []string) []string {
+	if t == nil {
+		return []string{}
 	}
-	_, err = repo.Update(dst.Name, func(b bot.Bot) bot.Bot {
-		out := b
-		out.Lineage = append(append([]bot.Lineage{}, b.Lineage...), bot.Lineage{InheritedFrom: src.Handle(), At: time.Now().UTC().Format("2006-01-02")})
-		return out
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "%s inherited %d knowledge entries from %s\n", dst.Handle(), n, src.Handle())
-	return nil
+	return t
 }
 
 func botInheritCmd(a *app) *cobra.Command {
@@ -152,11 +139,12 @@ func botInheritCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repo, err := e.Repo(dst.Scope)
+			n, err := e.InheritKnowledge(dst.Handle(), src.Handle())
 			if err != nil {
 				return err
 			}
-			return inheritInto(a, repo, src, dst)
+			fmt.Fprintf(a.out, "%s inherited %d knowledge entries from %s\n", dst.Handle(), n, src.Handle())
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&from, "from", "", "bot to copy knowledge from")
