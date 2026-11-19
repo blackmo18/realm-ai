@@ -130,6 +130,9 @@ func (f Files) grep(pattern, sub string) (string, error) {
 			}
 			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil // never follow symlinks out of the project
+		}
 		fh, err := os.Open(path)
 		if err != nil {
 			return nil
@@ -168,12 +171,23 @@ func (f Files) glob(pattern string) (string, error) {
 	if len(matches) == 0 {
 		return "no matches", nil
 	}
-	if len(matches) > maxMatches {
-		matches = matches[:maxMatches]
+	rels := make([]string, 0, len(matches))
+	for _, m := range matches {
+		real, err := filepath.EvalSymlinks(m)
+		if err != nil {
+			continue
+		}
+		if r, err := filepath.Rel(root, real); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			continue // match resolves outside the project
+		}
+		rel, _ := filepath.Rel(root, m)
+		rels = append(rels, rel)
+		if len(rels) == maxMatches {
+			break
+		}
 	}
-	rels := make([]string, len(matches))
-	for i, m := range matches {
-		rels[i], _ = filepath.Rel(root, m)
+	if len(rels) == 0 {
+		return "no matches", nil
 	}
 	return strings.Join(rels, "\n"), nil
 }

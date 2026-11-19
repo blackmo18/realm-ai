@@ -69,6 +69,16 @@ func TestFilesReadGrepGlob(t *testing.T) {
 	if err != nil || out != "internal/auth/jwt.go" {
 		t.Fatalf("glob: %q %v", out, err)
 	}
+	outside := t.TempDir()
+	_ = os.WriteFile(filepath.Join(outside, "id_rsa"), []byte("PRIVATE KEY TokenTTL"), 0o600)
+	_ = os.Symlink(filepath.Join(outside, "id_rsa"), filepath.Join(f.Root, "notes"))
+	_ = os.Symlink(outside, filepath.Join(f.Root, "ext"))
+	if out, _ := run(t, f, Grep, map[string]any{"pattern": "PRIVATE"}); out != "no matches" {
+		t.Fatalf("grep followed a symlink out of the project: %q", out)
+	}
+	if out, _ := run(t, f, Glob, map[string]any{"pattern": "ext/*"}); out != "no matches" {
+		t.Fatalf("glob listed files outside the project: %q", out)
+	}
 	if out, _ := run(t, f, Glob, map[string]any{"pattern": "*.rs"}); out != "no matches" {
 		t.Fatalf("glob no match: %q", out)
 	}

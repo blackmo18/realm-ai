@@ -35,8 +35,9 @@ type Turn struct {
 	SettingSources string
 
 	// Claude CLI specific.
-	BuiltinTools []string // allowed built-in tools; empty with NoTools = none
+	BuiltinTools []string // allowed built-in tools; empty = none
 	NoTools      bool
+	Disallowed   []string // deny rules, e.g. Read(//home/me/.realm/**)
 	Skills       []string // allowed skills; "*" = all
 	MCPConfig    string   // path to an MCP config exposing realm tools
 	SessionID    string

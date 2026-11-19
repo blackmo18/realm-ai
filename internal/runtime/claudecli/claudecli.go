@@ -49,10 +49,15 @@ func BuildArgs(t runtime.Turn) []string {
 	case t.SessionID != "":
 		args = append(args, "--session-id", t.SessionID)
 	}
+	// Always pass --tools: without it the CLI enables every built-in tool,
+	// and user or project allow rules could then approve them.
 	if t.NoTools {
 		args = append(args, "--tools", "")
-	} else if len(t.BuiltinTools) > 0 {
+	} else {
 		args = append(args, "--tools", strings.Join(t.BuiltinTools, ","))
+	}
+	if len(t.Disallowed) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(t.Disallowed, ","))
 	}
 	if allowed := allowedTools(t); len(allowed) > 0 {
 		args = append(args, "--allowedTools", strings.Join(allowed, ","))

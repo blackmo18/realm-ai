@@ -245,7 +245,9 @@ func (e *Engine) PostUser(chatID, text string) (store.Message, error) {
 	if err != nil {
 		return store.Message{}, err
 	}
-	e.wg.Add(1)
+	if !e.track() {
+		return m, errors.New("realm is shutting down")
+	}
 	go func() {
 		defer e.wg.Done()
 		e.route(c, st, m)

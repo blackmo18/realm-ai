@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackmo18/realm-ai/internal/bot"
@@ -31,6 +32,8 @@ type job struct {
 	Text      string `json:"text"`
 	Hop       int    `json:"hop"`
 	Routed    bool   `json:"routed"`
+	// Root is the message that started this chain of turns (budget key).
+	Root string `json:"root"`
 }
 
 // turnCtx is the identity behind a turn token used by realm tool calls.
@@ -39,12 +42,31 @@ type turnCtx struct {
 	Chat  string
 	Hop   int
 	Chain []string
+	Root  string
+	// fanout counts send_dm/delegate calls made in this turn.
+	fanout *atomic.Int32
 }
 
-const delegateLockWait = 60 * time.Second
+const (
+	delegateLockWait = 60 * time.Second
+	// maxFanoutPerTurn caps send_dm + delegate calls in one bot turn.
+	maxFanoutPerTurn = 3
+	// maxTurnsPerMessage caps bot turns started by one user message,
+	// including every delegation and DM it leads to.
+	maxTurnsPerMessage = 12
+)
+
+func newTurnCtx(b bot.Bot, chat string, hop int, chain []string, root string) turnCtx {
+	return turnCtx{Bot: b, Chat: chat, Hop: hop, Chain: chain, Root: root, fanout: &atomic.Int32{}}
+}
 
 func (e *Engine) enqueue(j job) {
-	e.wg.Add(1)
+	if j.Root == "" {
+		j.Root = j.MessageID
+	}
+	if !e.track() {
+		return
+	}
 	go func() {
 		defer e.wg.Done()
 		e.runJob(j)
@@ -75,16 +97,22 @@ func (e *Engine) runJob(j job) {
 		e.system(st, c.ID, &trigger, "%s is archived and does not take messages.", b.Handle())
 		return
 	}
-	if err := e.acquire(); err != nil {
+	if !e.spend(j.Root) {
+		e.system(st, c.ID, &trigger, "Stopped: this message already used its budget of %d bot turns.", maxTurnsPerMessage)
 		return
 	}
-	defer e.release()
+	// Take the bot lock before a concurrency slot so a busy bot's queue
+	// never holds slots other bots need.
 	unlock, err := e.lockBot(e.ctx, b.Handle(), 0)
 	if err != nil {
 		return
 	}
 	defer unlock()
-	d, body, err := e.execTurn(e.ctx, b, c, st, trigger, j.Text, turnCtx{Bot: b, Chat: c.ID, Hop: j.Hop, Chain: []string{b.Handle()}})
+	if err := e.acquire(); err != nil {
+		return
+	}
+	defer e.release()
+	d, body, err := e.execTurn(e.ctx, b, c, st, trigger, j.Text, newTurnCtx(b, c.ID, j.Hop, []string{b.Handle()}, j.Root))
 	if err != nil {
 		e.system(st, c.ID, &trigger, "%s failed: %v", b.Handle(), err)
 		return
@@ -255,6 +283,7 @@ func (e *Engine) cliTurn(base runtime.Turn, b bot.Bot, projectDir, sessionID, to
 	t := base
 	t.BuiltinTools = b.Tools
 	t.Skills = b.Skills
+	t.Disallowed = e.denyRealmFiles(projectDir)
 	switch {
 	case b.Scope != config.GlobalScope:
 		t.WorkDir, t.SettingSources = projectDir, "user,project"
@@ -278,6 +307,23 @@ func (e *Engine) cliTurn(base runtime.Turn, b bot.Bot, projectDir, sessionID, to
 	t.MCPConfig = path
 	note := "Realm tools are MCP tools named mcp__realm__<tool>: delegate, send_dm, post, read_chat, list_bots, remember, recall, forget."
 	return t, note, func() { _ = os.Remove(path) }, nil
+}
+
+// denyRealmFiles blocks file tools from Realm's own folders (databases,
+// turn tokens, other bots' knowledge). Bots use realm tools for knowledge.
+func (e *Engine) denyRealmFiles(projectDir string) []string {
+	dirs := []string{e.global.Root}
+	if projectDir != "" {
+		dirs = append(dirs, filepath.Join(projectDir, config.DirName))
+	}
+	var rules []string
+	for _, d := range dirs {
+		abs := "//" + strings.TrimPrefix(filepath.ToSlash(d), "/") + "/**"
+		for _, tool := range []string{"Read", "Edit", "Write"} {
+			rules = append(rules, tool+"("+abs+")")
+		}
+	}
+	return rules
 }
 
 func (e *Engine) writeMCPConfig(token string) (string, error) {
@@ -375,7 +421,7 @@ func (e *Engine) forward(b bot.Bot, c store.Chat, st *store.Store, trigger store
 	}
 	if c.Kind == store.KindGroup && policy.CanAccessChat(actorOf(target), c.Scope) {
 		e.system(st, c.ID, &trigger, "%s delegated to %s (%s)", b.Handle(), target.Handle(), d.Reason)
-		e.enqueue(job{Bot: target.Handle(), Chat: c.ID, MessageID: trigger.ID, Text: j.Text, Hop: hop})
+		e.enqueue(job{Bot: target.Handle(), Chat: c.ID, MessageID: trigger.ID, Text: j.Text, Hop: hop, Root: j.Root})
 		return
 	}
 	dm, dst, err := e.ensureDM(b.Handle(), target.Handle(), actorOf(b), actorOf(target))
@@ -389,7 +435,7 @@ func (e *Engine) forward(b bot.Bot, c store.Chat, st *store.Store, trigger store
 		return
 	}
 	e.system(st, c.ID, &trigger, "%s delegated to %s via %s (%s)", b.Handle(), target.Handle(), dm.ID, d.Reason)
-	e.enqueue(job{Bot: target.Handle(), Chat: dm.ID, MessageID: msg.ID, Text: j.Text, Hop: hop})
+	e.enqueue(job{Bot: target.Handle(), Chat: dm.ID, MessageID: msg.ID, Text: j.Text, Hop: hop, Root: j.Root})
 }
 
 // suggest names up to two other active bots whose topics appear in text.

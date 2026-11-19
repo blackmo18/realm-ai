@@ -66,10 +66,10 @@ func (s *Store) write(e Entry) (Entry, error) {
 		slug = "note"
 	}
 	out := Entry{ID: slug + "-" + ids.New()[8:], Title: title, Body: strings.TrimSpace(e.Body), Created: e.Created, Origin: e.Origin}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return Entry{}, fmt.Errorf("create knowledge folder: %w", err)
 	}
-	if err := os.WriteFile(s.path(out.ID), []byte(render(out)), 0o644); err != nil {
+	if err := os.WriteFile(s.path(out.ID), []byte(render(out)), 0o600); err != nil {
 		return Entry{}, fmt.Errorf("write knowledge: %w", err)
 	}
 	return out, s.rebuildIndex()
@@ -220,7 +220,7 @@ func (s *Store) rebuildIndex() error {
 	for _, e := range entries {
 		fmt.Fprintf(&b, "- %s (%s)\n", e.Title, e.ID)
 	}
-	return os.WriteFile(filepath.Join(s.dir, indexMD), []byte(b.String()), 0o644)
+	return os.WriteFile(filepath.Join(s.dir, indexMD), []byte(b.String()), 0o600)
 }
 
 // CopyFrom copies every entry from src into s, marking each with origin.

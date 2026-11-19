@@ -54,10 +54,12 @@ type Engine struct {
 	wg     sync.WaitGroup
 	sem    chan struct{}
 
-	mu       sync.Mutex
-	stores   map[string]*store.Store
-	botLocks map[string]chan struct{}
-	turns    map[string]turnCtx
+	mu        sync.Mutex
+	closed    bool
+	stores    map[string]*store.Store
+	botLocks  map[string]chan struct{}
+	turns     map[string]turnCtx
+	rootTurns map[string]int
 }
 
 // New creates an engine and opens the global store.
@@ -65,9 +67,10 @@ func New(opts Options) (*Engine, error) {
 	if opts.Global.Root == "" {
 		return nil, errors.New("global scope root is required")
 	}
-	if err := os.MkdirAll(opts.Global.Root, 0o755); err != nil {
+	if err := os.MkdirAll(opts.Global.Root, 0o700); err != nil {
 		return nil, fmt.Errorf("create global home: %w", err)
 	}
+	_ = os.Chmod(opts.Global.Root, 0o700)
 	maxConc := opts.Config.Limits.MaxConcurrent
 	if maxConc <= 0 {
 		maxConc = 1
@@ -78,6 +81,7 @@ func New(opts Options) (*Engine, error) {
 		runners: opts.Runners, logf: opts.Logf, hub: NewHub(),
 		ctx: ctx, cancel: cancel, sem: make(chan struct{}, maxConc),
 		stores: map[string]*store.Store{}, botLocks: map[string]chan struct{}{}, turns: map[string]turnCtx{},
+		rootTurns: map[string]int{},
 	}
 	if e.logf == nil {
 		e.logf = log.Printf
@@ -100,6 +104,9 @@ func (e *Engine) Wait() { e.wg.Wait() }
 
 // Close stops background work and closes databases.
 func (e *Engine) Close() error {
+	e.mu.Lock()
+	e.closed = true
+	e.mu.Unlock()
 	e.cancel()
 	e.wg.Wait()
 	e.mu.Lock()
@@ -110,6 +117,26 @@ func (e *Engine) Close() error {
 	}
 	e.stores = map[string]*store.Store{}
 	return errors.Join(errs...)
+}
+
+// track registers background work; it returns false once Close has begun.
+func (e *Engine) track() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return false
+	}
+	e.wg.Add(1)
+	return true
+}
+
+// spend counts one bot turn against the message that started the chain and
+// reports whether the chain is still within its budget.
+func (e *Engine) spend(root string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rootTurns[root]++
+	return e.rootTurns[root] <= maxTurnsPerMessage
 }
 
 func (e *Engine) defaultRunner(b bot.Bot) (runtime.Runner, error) {

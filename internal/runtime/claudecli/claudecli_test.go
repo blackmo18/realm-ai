@@ -70,6 +70,16 @@ func TestBuildArgsFullTurn(t *testing.T) {
 	}
 }
 
+func TestBuildArgsEmptyToolListDisablesBuiltins(t *testing.T) {
+	joined := strings.Join(BuildArgs(runtime.Turn{Disallowed: []string{"Read(//h/.realm/**)"}}), "|")
+	if !strings.Contains(joined, "--tools||") {
+		t.Fatalf("empty tool list must pass an empty --tools: %s", joined)
+	}
+	if !strings.Contains(joined, "--disallowedTools|Read(//h/.realm/**)") {
+		t.Fatalf("deny rules missing: %s", joined)
+	}
+}
+
 func TestBuildArgsModeratorAndNewSession(t *testing.T) {
 	args := BuildArgs(runtime.Turn{SystemPrompt: "route", ReplaceSystemPrompt: true, NoTools: true, SessionID: "new-id", Skills: []string{"*"}})
 	joined := strings.Join(args, "|")

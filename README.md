@@ -128,7 +128,18 @@ Message envelope (SQLite row and SSE event):
   `--strict-mcp-config`; never `--dangerously-skip-permissions`. Realm tools reach
   the daemon with a per-turn token, and the daemon checks the policy on every call.
 - **Loop guards.** One turn at a time per bot, 3 concurrent turns overall, hop
-  limit 4 for delegation chains, delegation cycles rejected.
+  limit 4 for delegation chains, delegation cycles rejected, at most 3
+  `send_dm`/`delegate` calls per turn, and at most 12 bot turns per user message.
+- **Realm folders are off limits.** `claude-cli` bots get deny rules for
+  `Read`/`Edit`/`Write` on `~/.realm` and `<project>/.realm`; knowledge goes
+  through the realm tools. The realm home is `0700`, databases and knowledge
+  files are `0600`. API-key bots' file tools never follow symlinks out of the
+  project.
+
+> **Trust note.** Bots run as your OS user. Granting a bot `Bash`, `Edit` or
+> `Write` gives it your user's power over files, the daemon socket and other
+> bots' data. Keep the default read-only tools unless you trust the charter and
+> the content the bot will read.
 
 Realm tools available to bots: `delegate` (ask another bot and wait),
 `send_dm`, `post`, `read_chat`, `list_bots`, `remember`, `recall`, `forget`.

@@ -246,3 +246,78 @@ func TestMCPConfigWrittenForCLITurns(t *testing.T) {
 		t.Fatal("mcp config should be removed after the turn")
 	}
 }
+
+func TestCLITurnDeniesRealmFolders(t *testing.T) {
+	f := setup(t)
+	c := f.chat(t, "app", "dev", store.RoutingMention)
+	f.post(t, c.ID, "@db hi")
+	deny := strings.Join(f.models.callsFor("@app/db")[0].Turn.Disallowed, " ")
+	for _, want := range []string{"Read(//" + strings.TrimPrefix(f.e.global.Root, "/") + "/**)", "Write(//" + strings.TrimPrefix(f.projDir, "/") + "/.realm/**)"} {
+		if !strings.Contains(deny, want) {
+			t.Errorf("deny rules missing %q: %s", want, deny)
+		}
+	}
+}
+
+func TestFanoutCapPerTurn(t *testing.T) {
+	f := setup(t)
+	f.models.answer("@app/db", func(turn runtime.Turn) (string, error) { return "ok", nil })
+	f.models.answer("@app/reviewer", func(turn runtime.Turn) (string, error) {
+		f.e.mu.Lock()
+		var tok string
+		for k, v := range f.e.turns {
+			if v.Bot.Name == "reviewer" {
+				tok = k
+			}
+		}
+		f.e.mu.Unlock()
+		var errs int
+		for i := 0; i < 5; i++ {
+			if _, err := f.e.CallTool(context.Background(), tok, "send_dm", json.RawMessage(`{"to":"@db","text":"spam"}`)); err != nil {
+				errs++
+			}
+		}
+		if errs != 2 {
+			t.Errorf("want 2 rejected send_dm calls (cap 3), got %d", errs)
+		}
+		return "done", nil
+	})
+	c := f.chat(t, "app", "dev", store.RoutingMention)
+	f.post(t, c.ID, "@reviewer go")
+	if n := len(f.models.callsFor("@app/db")); n != 3 {
+		t.Fatalf("db turns = %d, want 3", n)
+	}
+}
+
+func TestTurnBudgetPerMessage(t *testing.T) {
+	f := setup(t)
+	root := "root-msg"
+	for i := 0; i < maxTurnsPerMessage; i++ {
+		if !f.e.spend(root) {
+			t.Fatalf("turn %d rejected early", i+1)
+		}
+	}
+	if f.e.spend(root) {
+		t.Fatal("budget not enforced")
+	}
+	c := f.chat(t, "app", "dev", store.RoutingMention)
+	m := f.post(t, c.ID, "@db first")
+	for i := 0; i < maxTurnsPerMessage; i++ {
+		f.e.spend(m.ID)
+	}
+	f.e.enqueue(job{Bot: "@app/db", Chat: c.ID, MessageID: m.ID, Text: "again"})
+	f.e.Wait()
+	if _, ok := findMsg(f.messages(t, c.ID), "@realm", store.MsgSystem, "budget"); !ok {
+		t.Fatal("budget notice missing")
+	}
+}
+
+func TestPostAfterCloseFails(t *testing.T) {
+	f := setup(t)
+	c := f.chat(t, "app", "dev", store.RoutingMention)
+	_ = f.e.Close()
+	if _, err := f.e.PostUser(c.ID, "@db hi"); err == nil {
+		t.Fatal("post after close should fail")
+	}
+	f.e.enqueue(job{Bot: "@app/db", Chat: c.ID, MessageID: "x"}) // must not panic
+}

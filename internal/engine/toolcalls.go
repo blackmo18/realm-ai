@@ -181,6 +181,9 @@ func (e *Engine) checkTarget(tc turnCtx, to string) (bot.Bot, int, error) {
 	if hop > e.cfg.Limits.MaxHops {
 		return bot.Bot{}, 0, fmt.Errorf("hop limit (%d) reached", e.cfg.Limits.MaxHops)
 	}
+	if tc.fanout != nil && tc.fanout.Add(1) > maxFanoutPerTurn {
+		return bot.Bot{}, 0, fmt.Errorf("limit of %d bot messages per turn reached", maxFanoutPerTurn)
+	}
 	return target, hop, nil
 }
 
@@ -200,7 +203,7 @@ func (e *Engine) sendDMFor(b bot.Bot, tc turnCtx, to, text string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	e.enqueue(job{Bot: target.Handle(), Chat: dm.ID, MessageID: m.ID, Text: text, Hop: hop})
+	e.enqueue(job{Bot: target.Handle(), Chat: dm.ID, MessageID: m.ID, Text: text, Hop: hop, Root: tc.Root})
 	return "sent to " + target.Handle() + " in " + dm.ID, nil
 }
 
@@ -223,6 +226,13 @@ func (e *Engine) delegateFor(ctx context.Context, tc turnCtx, to, kind, text str
 	if target.Status != bot.StatusActive {
 		return "", fmt.Errorf("%s is %s", target.Handle(), target.Status)
 	}
+	if tc.Root != "" && !e.spend(tc.Root) {
+		return "", fmt.Errorf("this conversation used its budget of %d bot turns", maxTurnsPerMessage)
+	}
+	if !e.track() {
+		return "", errors.New("realm is shutting down")
+	}
+	defer e.wg.Done()
 	b := tc.Bot
 	dm, st, err := e.ensureDM(b.Handle(), target.Handle(), actorOf(b), actorOf(target))
 	if err != nil {
@@ -237,7 +247,7 @@ func (e *Engine) delegateFor(ctx context.Context, tc turnCtx, to, kind, text str
 		return "", err
 	}
 	defer unlock()
-	nested := turnCtx{Bot: target, Chat: dm.ID, Hop: hop, Chain: append(slices.Clone(tc.Chain), target.Handle())}
+	nested := newTurnCtx(target, dm.ID, hop, append(slices.Clone(tc.Chain), target.Handle()), tc.Root)
 	d, body, err := e.execTurn(ctx, target, dm, st, msg, text, nested)
 	if err != nil {
 		return "", fmt.Errorf("%s failed: %w", target.Handle(), err)
