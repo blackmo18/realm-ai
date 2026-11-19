@@ -56,7 +56,7 @@ func (f *fakeAPI) GetChat(_ context.Context, id string) (store.Chat, error) {
 	return store.Chat{ID: id, Kind: store.KindGroup, Scope: "app", Name: "dev", Routing: f.routing}, nil
 }
 func (f *fakeAPI) Messages(context.Context, string, int) ([]store.Message, error) { return f.msgs, nil }
-func (f *fakeAPI) Stream(context.Context, string) (<-chan store.Message, error)    { return f.stream, nil }
+func (f *fakeAPI) Stream(context.Context, string) (<-chan store.Message, error)   { return f.stream, nil }
 func (f *fakeAPI) Post(_ context.Context, chat, text string) (store.Message, error) {
 	f.log("post " + chat + " " + text)
 	if f.failPost {
