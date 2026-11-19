@@ -163,7 +163,7 @@ func NewRoot(out, errOut io.Writer, in io.Reader) *cobra.Command {
 	}
 	root.SetOut(out)
 	root.SetErr(errOut)
-	root.AddCommand(initCmd(a), statusCmd(a), daemonCmd(a), botCmd(a), knowledgeCmd(a), chatCmd(a), dmCmd(a), uiCmd(a), mcpCmd(a))
+	root.AddCommand(initCmd(a), statusCmd(a), daemonCmd(a), botCmd(a), knowledgeCmd(a), chatCmd(a), dmCmd(a), uiCmd(a), tuiCmd(a), mcpCmd(a))
 	return root
 }
 
