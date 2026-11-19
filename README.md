@@ -35,6 +35,33 @@ realm chat join dev                       # interactive: type, @mention, /pick, 
 
 The daemon starts on demand (`realm daemon start|stop|status`).
 
+## Interfaces
+
+| Interface | Start | What it does |
+| --- | --- | --- |
+| Web UI | `realm ui` | Browser app on `127.0.0.1` with a per-launch token: chat rooms, bots, knowledge, new chats, Add project wizard, settings |
+| Terminal UI | `realm tui` | Same flows in the terminal: scope tree, chat pane, bots pane, keyboard forms |
+| CLI | `realm bot …`, `realm chat …`, `realm dm …` | Scriptable commands |
+| Admin MCP | `claude mcp add realm -- realm mcp-admin` | Lets Claude Code or Claude Desktop manage Realm for you |
+
+**Adding a project.** In the web UI use **Add project** in the sidebar footer, in
+the TUI press `p`, or run `realm init` in the folder. The wizard inspects the
+folder (git, `CLAUDE.md`, project skills), can keep `.realm/realm.db` out of git,
+creates starter bots (reviewer, docs, tester) and opens the first group chat.
+New chats: the `+` next to any scope in the sidebar, `n` in the TUI, or
+`realm chat create`.
+
+**Web UI security.** The listener binds to `127.0.0.1` only, requires the token
+from the printed URL, rejects other `Host` headers (DNS rebinding) and other
+`Origin`s (CSRF), and never exposes the bot tool endpoint or shutdown.
+
+**Admin MCP tools.** `list_projects`, `add_project`, `list_bots`, `get_bot`,
+`create_bot`, `update_bot`, `set_bot_status`, `inherit_knowledge`,
+`list_knowledge`, `add_knowledge`, `forget_knowledge`, `list_chats`,
+`create_chat`, `add_chat_member`, `set_chat_routing`, `post_message`,
+`read_messages`, `dm_bot` (waits for the reply), `pick_bot`, `reroute_message`.
+It acts as you; archive and forget are marked destructive so the client asks first.
+
 ## Concepts
 
 **Scopes.** A bot is global (`~/.realm/bots/<name>`, handle `@global/<name>`) or
@@ -179,6 +206,8 @@ realm bot create|list|show|set|on|off|archive|restore|inherit
 realm knowledge list|show|add|forget <bot>
 realm chat create|list|post|tail|join|pick|reroute|add|routing
 realm dm <@bot> <text>
+realm ui [--no-open]                     realm tui
+realm mcp-admin
 ```
 
 ## Layout
@@ -193,8 +222,14 @@ internal/runtime          claude-cli and API-key runners
 internal/store            per-scope SQLite
 internal/bot, knowledge   bot files and knowledge notes
 internal/daemon, client   unix-socket HTTP API and client
-internal/mcpserver        stdio MCP server exposing realm tools
+internal/mcpserver        stdio MCP server (bot tools and admin tools)
+internal/adminmcp         realm-admin tool set
+internal/tui              terminal UI (Bubble Tea)
+internal/webui, web/      embedded web UI (React + Vite + TS)
 ```
+
+Build the web UI after changing `web/`: `make web` (the built files in
+`internal/webui/dist` are committed so `go install` works without Node).
 
 Design decisions: [docs/adr](docs/adr).
 
