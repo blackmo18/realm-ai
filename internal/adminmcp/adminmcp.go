@@ -69,9 +69,10 @@ var (
 func Tools() []runtime.ToolDef {
 	return []runtime.ToolDef{
 		{Name: "list_projects", Description: "List projects registered with Realm.", Schema: obj(map[string]any{})},
-		{Name: "add_project", Description: "Register a project folder and optionally create starter bots (reviewer, docs, tester) and its first group chat.",
+		{Name: "add_project", Description: "Register a project folder (creates <dir>/.realm) and optionally create starter bots (reviewer, docs, tester) and its first group chat. Only use a folder the user named.",
 			Schema: obj(map[string]any{"dir": str("Project folder path (~ allowed)"), "name": str("Project name; defaults to the folder name"),
-				"starters": list("Starter bot templates: reviewer, docs, tester"), "global_members": list("Global bot handles to add to the first chat"),
+				"ignore_db": map[string]any{"type": "boolean", "description": "Add .realm/realm.db to the project's .gitignore (writes that file). Default false."},
+				"starters":  list("Starter bot templates: reviewer, docs, tester"), "global_members": list("Global bot handles to add to the first chat"),
 				"chat_name": str("First chat name (default general)"), "routing": routingProp}, "dir")},
 		{Name: "list_bots", Description: "List bots visible from a scope (global shows every project's bots).", Schema: obj(map[string]any{"scope": scopeProp}, "scope")},
 		{Name: "get_bot", Description: "Show one bot's definition.", Schema: obj(map[string]any{"handle": handleProp}, "handle")},
@@ -107,6 +108,7 @@ func Tools() []runtime.ToolDef {
 
 type args struct {
 	Dir           string   `json:"dir"`
+	IgnoreDB      bool     `json:"ignore_db"`
 	Name          string   `json:"name"`
 	Starters      []string `json:"starters"`
 	GlobalMembers []string `json:"global_members"`
@@ -173,7 +175,7 @@ func dispatch(ctx context.Context, api API, name string, a args) (string, error)
 	case "list_projects":
 		return result(api.Projects(ctx))
 	case "add_project":
-		return result(api.Onboard(ctx, engine.OnboardInput{Dir: a.Dir, Slug: a.Name, IgnoreDB: true, Starters: a.Starters,
+		return result(api.Onboard(ctx, engine.OnboardInput{Dir: a.Dir, Slug: a.Name, IgnoreDB: a.IgnoreDB, Starters: a.Starters,
 			GlobalMembers: a.GlobalMembers, ChatName: a.ChatName, Routing: a.Routing}))
 	case "list_bots":
 		return result(api.ListBots(ctx, a.Scope))

@@ -416,3 +416,23 @@ func TestQuitAndHelpers(t *testing.T) {
 		t.Fatal("zero-size view should say loading")
 	}
 }
+
+func TestStaleChatResultsIgnored(t *testing.T) {
+	f := newFake()
+	m := openDev(t, f)
+	next, _ := m.openChat("app/other")
+	m = next.(Model)
+	m = run(t, m, chatLoaded{id: "app/dev", chat: store.Chat{ID: "app/dev"}})
+	if m.chat.chat.ID != "app/other" {
+		t.Fatalf("late result switched chat to %q", m.chat.chat.ID)
+	}
+	m = run(t, m, streamMsg{chat: "app/dev", msg: store.Message{ID: "x"}, ch: make(chan store.Message)})
+	if len(m.chat.msgs) != 0 {
+		t.Fatal("old chat's stream leaked into the new chat")
+	}
+	m = run(t, m, streamMsg{chat: "app/other", msg: store.Message{ID: "05"}, ch: make(chan store.Message)})
+	m = run(t, m, chatLoaded{id: "app/other", chat: store.Chat{ID: "app/other"}, msgs: []store.Message{{ID: "04"}}})
+	if len(m.chat.msgs) != 2 || m.chat.msgs[0].ID != "04" {
+		t.Fatalf("history should merge with streamed messages: %+v", m.chat.msgs)
+	}
+}

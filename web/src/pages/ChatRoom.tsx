@@ -17,8 +17,26 @@ export function ChatRoom({ chatId }: Props) {
 
   useEffect(() => {
     let isLive = true;
-    api.messages(chatId).then((m) => isLive && setMessages(m)).catch((e: unknown) => setError(String(e)));
-    const close = api.stream(chatId, (m) => setMessages((cur) => mergeMessages(cur, m)));
+    // Merge, never replace: stream messages may arrive before the history fetch resolves.
+    const loadHistory = () =>
+      api.messages(chatId)
+        .then((history) => isLive && setMessages((cur) => history.reduce(mergeMessages, cur)))
+        .catch((e: unknown) => isLive && setError(String(e)));
+    setMessages([]);
+    void loadHistory();
+    const close = api.stream(
+      chatId,
+      (m) => setMessages((cur) => mergeMessages(cur, m)),
+      (state) => {
+        if (!isLive) return;
+        if (state === 'open') {
+          setError('');
+          void loadHistory(); // catch up on anything missed while disconnected
+        } else {
+          setError('Live updates stopped. If the daemon restarted, reopen the UI with `realm ui`.');
+        }
+      },
+    );
     return () => { isLive = false; close(); };
   }, [chatId]);
 

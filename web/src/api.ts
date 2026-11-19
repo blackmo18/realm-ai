@@ -216,8 +216,21 @@ export const api = {
   providers: () => call<ProviderInfo[]>('GET', '/v1/providers'),
   settings: () => call<Settings>('GET', '/v1/settings'),
   /** Live messages for a chat. Returns a function that closes the stream. */
-  stream: (chat: string, onMessage: (m: Message) => void): (() => void) => {
+  stream: (chat: string, onMessage: (m: Message) => void, onState?: (state: 'open' | 'error') => void): (() => void) => {
     const src = new EventSource('/api/v1/stream' + qs({ chat, token: currentToken }));
+    let failures = 0;
+    src.onopen = () => {
+      failures = 0;
+      onState?.('open');
+    };
+    src.onerror = () => {
+      failures += 1;
+      // A closed stream (e.g. 401 after a daemon restart) or repeated failures will not recover.
+      if (src.readyState === EventSource.CLOSED || failures >= 3) {
+        src.close();
+        onState?.('error');
+      }
+    };
     src.onmessage = (ev) => {
       try {
         onMessage(JSON.parse(ev.data) as Message);

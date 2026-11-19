@@ -28,6 +28,7 @@ type chatState struct {
 
 type (
 	chatLoaded struct {
+		id   string
 		chat store.Chat
 		msgs []store.Message
 		bots []engine.BotView
@@ -91,20 +92,21 @@ func (m Model) openChat(id string) (tea.Model, tea.Cmd) {
 		}
 	}
 	out.chat = newChatState().resize(out.mainWidth())
+	out.chat.chat.ID = id // results for any other chat are ignored
 	out.chat.input.Focus()
 	api := m.api
 	load := func() tea.Msg {
 		c, err := api.GetChat(ctx, id)
 		if err != nil {
-			return chatLoaded{err: err}
+			return chatLoaded{id: id, err: err}
 		}
 		msgs, err := api.Messages(ctx, id, 200)
 		if err != nil {
-			return chatLoaded{err: err}
+			return chatLoaded{id: id, err: err}
 		}
 		bots, err := api.ListBots(ctx, c.Scope)
 		if err != nil {
-			return chatLoaded{err: err}
+			return chatLoaded{id: id, err: err}
 		}
 		var allowed []engine.BotView
 		for _, b := range bots {
@@ -112,7 +114,7 @@ func (m Model) openChat(id string) (tea.Model, tea.Cmd) {
 				allowed = append(allowed, b)
 			}
 		}
-		return chatLoaded{chat: c, msgs: msgs, bots: allowed}
+		return chatLoaded{id: id, chat: c, msgs: msgs, bots: allowed}
 	}
 	subscribe := func() tea.Msg {
 		ch, err := api.Stream(ctx, id)
@@ -138,14 +140,21 @@ func (m Model) updateChatMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	out := m
 	switch msg := msg.(type) {
 	case chatLoaded:
+		if msg.id != out.chat.chat.ID {
+			return out, nil // a late result for a chat we already left
+		}
 		if msg.err != nil {
 			return out.flash("", msg.err), nil
 		}
-		out.chat.chat, out.chat.msgs, out.chat.bots = msg.chat, msg.msgs, msg.bots
-	case streamMsg:
-		if msg.chat == out.chat.chat.ID || out.chat.chat.ID == "" {
-			out.chat.msgs = appendMsg(out.chat.msgs, msg.msg)
+		out.chat.chat, out.chat.bots = msg.chat, msg.bots
+		for _, m := range msg.msgs { // merge: streamed messages may already be here
+			out.chat.msgs = appendMsg(out.chat.msgs, m)
 		}
+	case streamMsg:
+		if msg.chat != out.chat.chat.ID {
+			return out, nil // stream of a chat we left; its context is cancelled
+		}
+		out.chat.msgs = appendMsg(out.chat.msgs, msg.msg)
 		return out, waitStream(msg.chat, msg.ch)
 	}
 	return out, nil
