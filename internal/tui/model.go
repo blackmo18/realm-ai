@@ -346,7 +346,7 @@ func (m Model) footerView() string {
 	case m.focusMain && m.view == viewChat:
 		return footer(m.width, "enter", "send", "alt+enter", "new line", "1-9", "pick bot", "r", "reroute", "m", "routing", "esc", "back", "(letters/numbers act when the box is empty)")
 	case m.focusMain && m.view == viewBots:
-		return footer(m.width, "a", "add bot", "o", "on/off", "x", "archive", "i", "inherit", "k", "knowledge", "d", "DM", "esc", "back")
+		return footer(m.width, "a", "add bot", "o", "on/off", "x", "archive", "i", "inherit", "K", "knowledge", "d", "DM", "esc", "back")
 	default:
 		return footer(m.width, "↑↓", "move", "enter", "open", "tab", "pane", "n", "new chat", "p", "add project", "b", "bots", "q", "quit")
 	}

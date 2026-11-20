@@ -6,6 +6,15 @@ Claude subscription through the `claude` CLI, or on API keys for other
 providers (Anthropic API, OpenAI, OpenRouter, Ollama, any OpenAI-compatible
 endpoint). Everything runs on your machine.
 
+## Documentation
+
+| Doc | Covers |
+| --- | --- |
+| [Usage guide](docs/USAGE.md) | Step-by-step flows: projects, bots, chats, routing, delegation, knowledge, providers, UIs, admin MCP |
+| [Architecture](docs/ARCHITECTURE.md) | Components, storage, message flow, turn execution, security boundaries |
+| [API reference](docs/API.md) | Daemon HTTP endpoints, message envelope, bot tools, admin MCP tools |
+| [Design decisions](docs/adr) | ADRs |
+
 ## Install
 
 Requires Go 1.27+ and, for subscription bots, the `claude` CLI logged in.
@@ -231,7 +240,8 @@ internal/webui, web/      embedded web UI (React + Vite + TS)
 Build the web UI after changing `web/`: `make web` (the built files in
 `internal/webui/dist` are committed so `go install` works without Node).
 
-Design decisions: [docs/adr](docs/adr).
+Design decisions: [docs/adr](docs/adr). How the parts fit:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
